@@ -1,7 +1,8 @@
-"""ComfyUI 纯推理插件核心节点（Runtime Only）。
+"""ComfyUI Pure Inference Node Implementation (Runtime Only).
 
-专职负责加载预训练的 5120 维物理/动作语义桥（.safetensors），
-在无需重训大模型的前提下，为打斗视频注入真实打击感与物理因果。
+Loads pre-trained 5120-d combat semantic bridge weights (.safetensors),
+injecting authentic impact recoil and physical causality into action video generation
+without fine-tuning the base diffusion model.
 """
 
 from __future__ import annotations
@@ -43,7 +44,6 @@ def _list_weights() -> List[str]:
     if os.path.isdir(BRIDGE_DIR):
         files.extend([f for f in os.listdir(BRIDGE_DIR) if f.lower().endswith(".safetensors")])
 
-    # 当前插件内预置的 models/ 目录作为备用扫描路径
     local_models = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
     if os.path.isdir(local_models):
         files.extend([f for f in os.listdir(local_models) if f.lower().endswith(".safetensors")])
@@ -69,7 +69,7 @@ def _resolve_weight(name: str) -> str:
     if os.path.isfile(local):
         return local
 
-    raise FileNotFoundError(f"找不到语义桥权重文件：{name}（请将 .safetensors 放入 {BRIDGE_DIR}）")
+    raise FileNotFoundError(f"Cannot find semantic bridge weight file: {name} (Please place .safetensors in {BRIDGE_DIR})")
 
 
 def _pick_torch_device(choice: str) -> str:
@@ -80,7 +80,7 @@ def _pick_torch_device(choice: str) -> str:
 
 def _get_bridge(name: str, device: str):
     if name == "none":
-        raise ValueError("请先选择一个有效的语义桥权重文件（.safetensors）。若下拉为空，请将权重放入 ComfyUI/models/wushu_bridge/ 目录。")
+        raise ValueError("Please select a valid semantic bridge weight file (.safetensors). If dropdown is empty, place your weights in ComfyUI/models/wushu_bridge/).")
     key = (name, device)
     if key not in _BRIDGE_CACHE:
         path = _resolve_weight(name)
@@ -94,14 +94,15 @@ def _ui(result: tuple, *texts: str) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════
-# 1. 核心推理节点：KinetiX 武打语义逻辑桥 (Combat Semantic Bridge)
+# 1. Core Inference Node: KinetiX Combat Semantic Bridge
 # ══════════════════════════════════════════════════════════════════════
 
 class KinetiXSemanticBridge:
-    """把 5120 维打斗残差桥接在 conditioning 之间，输出物理修正后的 CONDITIONING。
+    """Connects 5120-d combat residual bridge in between conditionings,
 
-    只替换 embedding 张量，minimax_keyframes / minimax_refs / minimax_frame_count
-    等 metadata 原样保留，支持纯文本 T2V 与多图/首尾帧 Ref2VA。
+    outputting physically enhanced CONDITIONING with contact points,
+    staggered recoil, and clashing sparks.
+    Preserves all native metadata including minimax_keyframes and minimax_refs.
     """
 
     @classmethod
@@ -111,13 +112,13 @@ class KinetiXSemanticBridge:
                 "conditioning": ("CONDITIONING",),
                 "bridge": (_list_weights(),),
                 "alpha": ("FLOAT", {"default": 0.18, "min": 0.0, "max": 1.0, "step": 0.01,
-                                    "tooltip": "注入强度：T2V 推荐 0.18~0.25；Ref2VA 推荐 0.10~0.12"}),
+                                    "tooltip": "Injection strength: 0.18-0.25 for T2V; 0.10-0.12 for Ref2VA."}),
                 "magnitude_match": (list(MAGNITUDE_MODES), {"default": "per_token",
-                                                            "tooltip": "模长对齐模式：推荐 per_token，保护特征能量恒定防偏色"}),
+                                                            "tooltip": "Magnitude matching mode: per_token preserves token energy and prevents color shifts."}),
                 "token_span": (list(TEXT_SPAN_MODES), {"default": "all",
-                                                       "tooltip": "all=全序列；tail=仅微调尾部动作词（Ref2VA 图生视频必须选 tail，保护人脸不走样）"}),
+                                                       "tooltip": "all = full sequence; tail = modify only tail action tokens (crucial for Ref2VA to preserve face identity)."}),
                 "tail_ratio": ("FLOAT", {"default": 0.5, "min": 0.05, "max": 1.0, "step": 0.05,
-                                        "tooltip": "tail 模式下生效的尾部比例，默认 0.5"}),
+                                        "tooltip": "Tail sequence ratio when token_span is set to tail (default 0.5)."}),
                 "device": (["auto", "cpu", "cuda"], {"default": "auto"}),
                 "chunk_tokens": ("INT", {"default": 0, "min": 0, "max": 65536, "step": 256}),
                 "allow_dim_mismatch": ("BOOLEAN", {"default": False}),
@@ -129,7 +130,7 @@ class KinetiXSemanticBridge:
     FUNCTION = "apply"
     CATEGORY = "MiniMax H3/KinetiX Bridge"
     OUTPUT_NODE = True
-    DESCRIPTION = "KinetiX 5120 维语义桥：在条件空间对 CONDITIONING 注入真实打击感与物理因果残差"
+    DESCRIPTION = "KinetiX 5120-d Semantic Bridge: Injects physical combat impact, weapon clashes, and staggered recoil into CONDITIONING space."
 
     def apply(
         self,
@@ -162,11 +163,11 @@ class KinetiXSemanticBridge:
 
 
 # ══════════════════════════════════════════════════════════════════════
-# 2. 辅助工具节点：清理显存与缓存
+# 2. Auxiliary Tool Node: Clear Cache
 # ══════════════════════════════════════════════════════════════════════
 
 class KinetixClearCache:
-    """清理内存/显存中缓存的语义桥模型。"""
+    """Releases cached bridge models from RAM and VRAM."""
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -183,28 +184,28 @@ class KinetixClearCache:
         _BRIDGE_CACHE.clear()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-        msg = f"已释放 {n_b} 个语义桥模型缓存，显存已清理。"
+        msg = f"Released {n_b} cached semantic bridge model(s). VRAM cache cleared."
         return _ui((msg,), msg)
 
 
 # ══════════════════════════════════════════════════════════════════════
-# 节点映射表（保留向后兼容别名，打开老工作流时不红节点）
+# Node Mappings (Backwards compatible aliases preserved)
 # ══════════════════════════════════════════════════════════════════════
 
 NODE_CLASS_MAPPINGS = {
-    # 官方标准新命名
+    # Official Standard Names
     "KinetiXSemanticBridge": KinetiXSemanticBridge,
     "KinetixClearCache": KinetixClearCache,
 
-    # 向后兼容别名（打开旧工作流时不报错）
+    # Backwards Compatibility Aliases
     "H3WushuSemanticBridge": KinetiXSemanticBridge,
     "H3WushuClearCache": KinetixClearCache,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "KinetiXSemanticBridge": "KinetiX 武打语义逻辑桥 (Combat Semantic Bridge)",
-    "KinetixClearCache": "KinetiX 清理缓存 (Clear Cache)",
+    "KinetiXSemanticBridge": "KinetiX Combat Semantic Bridge",
+    "KinetixClearCache": "KinetiX Clear Cache",
 
-    "H3WushuSemanticBridge": "KinetiX 武打语义逻辑桥 [Legacy]",
-    "H3WushuClearCache": "KinetiX 清理缓存 [Legacy]",
+    "H3WushuSemanticBridge": "KinetiX Combat Semantic Bridge [Legacy]",
+    "H3WushuClearCache": "KinetiX Clear Cache [Legacy]",
 }

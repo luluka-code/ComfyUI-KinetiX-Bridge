@@ -1,24 +1,17 @@
-"""武打语义桥（Wushu Semantic Bridge）的模型架构与权重读写。
+"""Combat Semantic Bridge Architecture and Weight I/O.
 
-本模块只依赖 torch，不依赖 ComfyUI，方便脱离 ComfyUI 单独训练 / 单测。
+Only depends on torch, fully decoupled from ComfyUI for standalone testing and inference.
 
-两种架构
---------
+Supported Architectures:
+-----------------------
 ``mlp``
-    与社区版 MiniMax-H3-Semantic-Bridge v1 完全同构：逐 token 的
-    ``D -> H -> H -> D`` 全连接残差头。用来做「同架构对照」以及直接加载
-    社区那 11MB 适配器做 A/B（权重键名一致：fc1/fc2/fc3）。
+    Isomorphic to community MiniMax-H3-Semantic-Bridge v1: per-token D -> H -> H -> D
+    fully connected residual head. Provides direct compatibility with community 11MB weights.
 
 ``trans``
-    跨 token 的轻量 Transformer 残差桥。武打逻辑的关键在于「整段是否自洽」
-    —— 刀和拳不能同时出现在同一只手、格距 2 格不能拳脚命中、死线前必须
-    有结果 —— 这些约束只有看到整条 token 序列才可能建模，逐 token MLP
-    在原理上做不到。默认 2 层 / d=256 / 4 头，参数量约 3.2M（fp32 ≈ 13MB），
-    与社区版同量级。
-
-两个架构共享同一条应用公式（见 ``apply.py``）：
-``hybrid = h + alpha * (bridge(h) - h)``，alpha 小、幅度对齐，保证不跑出
-H3 文本编码器的原生流形。
+    Cross-token lightweight Transformer residual bridge. Sequence-level causality
+    (weapon clashes, momentum recoil, distance consistency) requires inter-token modeling.
+    Default: 2 layers / d=256 / 4 heads (~3.2M params, fp32 ≈ 13MB).
 """
 
 from __future__ import annotations
@@ -40,33 +33,31 @@ SUPPORTED_ARCHS = (ARCH_MLP, ARCH_TRANS)
 
 @dataclass
 class BridgeConfig:
-    """残差桥的结构与训练来源元信息。"""
+    """Configuration and metadata for the combat semantic bridge."""
 
     arch: str = ARCH_TRANS
     dim: int = 5120
-    hidden: int = 512
+    hidden: int = 256
     layers: int = 2
     heads: int = 4
     dropout: float = 0.0
     max_tokens: int = 4096
-    # 训练来源信息（仅记录，不影响前向计算）
     mode: str = "t2v"           # t2v / ref2v / any
     schema: int = SCHEMA_VERSION
-    name: str = "wushu_bridge"
+    name: str = "kinetix_bridge"
     note: str = ""
     extra: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.arch not in SUPPORTED_ARCHS:
-            raise ValueError(f"未知 arch: {self.arch}，可选 {SUPPORTED_ARCHS}")
+            raise ValueError(f"Unknown arch: {self.arch}, expected one of {SUPPORTED_ARCHS}")
         if self.arch == ARCH_MLP:
-            # 与社区版同构：中间层宽度=hidden，层数固定 2 个隐层
             if self.hidden <= 0:
-                raise ValueError("hidden 必须为正整数")
+                raise ValueError("hidden must be a positive integer")
         else:
             if self.hidden % self.heads != 0:
                 raise ValueError(
-                    f"hidden({self.hidden}) 必须能被 heads({self.heads}) 整除"
+                    f"hidden ({self.hidden}) must be divisible by heads ({self.heads})"
                 )
 
     def to_json(self) -> str:
@@ -83,7 +74,7 @@ def _sinusoidal_positions(max_tokens: int, hidden: int) -> torch.Tensor:
 
 
 class _ResidualMLP(nn.Module):
-    """社区版同构：逐 token MLP。"""
+    """Token-wise MLP residual head (community isomorphic)."""
 
     def __init__(self, dim: int, hidden: int) -> None:
         super().__init__()
@@ -99,7 +90,7 @@ class _ResidualMLP(nn.Module):
 
 
 class _TokenTransformer(nn.Module):
-    """跨 token 轻量 Transformer。"""
+    """Sequence-level cross-token lightweight Transformer."""
 
     def __init__(
         self,
@@ -112,8 +103,6 @@ class _TokenTransformer(nn.Module):
     ) -> None:
         super().__init__()
         self.in_proj = nn.Linear(dim, hidden, bias=True)
-        # 用固定正弦位置编码而不是可学习的位置表：省掉 max_tokens*hidden 参数
-        # （4096*512 就是 200 万参数），而且天然支持任意长度插值。
         self.register_buffer(
             "_pe", _sinusoidal_positions(max_tokens, hidden), persistent=False
         )
@@ -135,12 +124,11 @@ class _TokenTransformer(nn.Module):
         pe = self._pe
         if n <= pe.shape[1]:
             return pe[:, :n].to(device=device, dtype=dtype)
-        # 超长序列（n > max_tokens）：动态生成解析正弦位置编码，精确且原生支持任意序列长度
+        # Super-long sequences (n > max_tokens): dynamically compute exact sinusoidal embeddings
         hidden = int(self.in_proj.out_features)
         return _sinusoidal_positions(n, hidden).to(device=device, dtype=dtype)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: [B, T, D]
         h = self.in_proj(x)
         h = h + self._positions(h.shape[1], h.device, h.dtype)
         h = self.encoder(h)
@@ -149,7 +137,7 @@ class _TokenTransformer(nn.Module):
 
 
 class WushuBridge(nn.Module):
-    """统一封装：``forward(x)`` 返回与输入同形状的修正后 embedding。"""
+    """Unified wrapper: forward(x) returns transformed embedding with the same shape."""
 
     def __init__(self, cfg: BridgeConfig) -> None:
         super().__init__()
@@ -163,21 +151,15 @@ class WushuBridge(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.ndim != 3:
-            raise ValueError(f"期望 [B,T,D] 输入，得到 {tuple(x.shape)}")
+            raise ValueError(f"Expected [B,T,D] input, got shape {tuple(x.shape)}")
         if x.shape[-1] != self.cfg.dim:
             raise ValueError(
-                f"embedding 维度不匹配：模型 dim={self.cfg.dim}，输入 {x.shape[-1]}。"
-                "请用与训练时相同的 H3 文本编码器。"
+                f"Embedding dimension mismatch: model dim={self.cfg.dim}, input {x.shape[-1]}."
             )
         return self.net(x)
 
-    # ---- 统计 ----
     def num_params(self) -> int:
         return sum(p.numel() for p in self.parameters())
-
-    def approx_bytes(self, dtype: str = "fp32") -> int:
-        width = {"fp32": 4, "fp16": 2, "bf16": 2}[dtype]
-        return self.num_params() * width
 
 
 def build_bridge(cfg: BridgeConfig) -> WushuBridge:
@@ -185,13 +167,11 @@ def build_bridge(cfg: BridgeConfig) -> WushuBridge:
 
 
 def save_bridge(path: str, model: WushuBridge, extra_meta: Optional[Dict[str, Any]] = None) -> str:
-    """把桥存成 safetensors（含 config 元信息），供 ComfyUI 侧加载。"""
+    """Saves bridge to safetensors format with config metadata."""
     from safetensors.torch import save_file
 
     os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
-    cfg = model.cfg
-    meta = {k: str(v) for k, v in asdict(cfg).items() if k != "extra"}
-    meta["extra_json"] = json.dumps(cfg.extra, ensure_ascii=False)
+    meta = {k: str(v) for k, v in asdict(model.cfg).items()}
     if extra_meta:
         for k, v in extra_meta.items():
             meta[f"train_{k}"] = str(v)
@@ -200,79 +180,77 @@ def save_bridge(path: str, model: WushuBridge, extra_meta: Optional[Dict[str, An
     return path
 
 
-def config_from_metadata(meta: Dict[str, str], state: Dict[str, torch.Tensor]) -> BridgeConfig:
-    """从 safetensors 元信息推断结构（元信息缺失时按张量形状兜底）。"""
-    meta = meta or {}
-    if "fc1.weight" in state:  # 社区版 MLP
-        dim = int(state["fc3.weight"].shape[1] if "fc3.weight" in state else state["fc1.weight"].shape[1])
+def infer_config_from_state(state: Dict[str, torch.Tensor], meta: Dict[str, str]) -> BridgeConfig:
+    """Infers architecture config from safetensors metadata and tensor shapes."""
+    if "fc1.weight" in state:
+        dim = int(state["fc1.weight"].shape[1])
         hidden = int(state["fc1.weight"].shape[0])
         return BridgeConfig(
             arch=ARCH_MLP,
             dim=dim,
             hidden=hidden,
             layers=2,
-            mode=meta.get("mode", "any"),
-            name=meta.get("name", "semantic_bridge_v1"),
-            note="按社区 MiniMax-H3-Semantic-Bridge 权重形状推断",
+            heads=1,
+            name=meta.get("name", "community_mlp_bridge"),
+            note="Inferred from community MiniMax-H3-Semantic-Bridge tensor shapes",
         )
-    if "net.in_proj.weight" in state:
-        hidden = int(state["net.in_proj.weight"].shape[0])
-        dim = int(state["net.in_proj.weight"].shape[1])
-        layers = 0
-        while f"net.encoder.layers.{layers}.norm1.weight" in state:
-            layers += 1
+
+    if "net.fc1.weight" in state:
+        dim = int(state["net.fc1.weight"].shape[1])
+        hidden = int(state["net.fc1.weight"].shape[0])
+        return BridgeConfig(
+            arch=ARCH_MLP,
+            dim=dim,
+            hidden=hidden,
+            layers=2,
+            heads=1,
+            name=meta.get("name", "kinetix_mlp_bridge"),
+        )
+
+    if "net.in_proj.weight" in state or "in_proj.weight" in state:
+        key = "net.in_proj.weight" if "net.in_proj.weight" in state else "in_proj.weight"
+        dim = int(state[key].shape[1])
+        hidden = int(state[key].shape[0])
+        prefix = "net.encoder.layers." if "net.in_proj.weight" in state else "encoder.layers."
+        layer_ids = set()
+        for k in state:
+            if k.startswith(prefix):
+                layer_ids.add(int(k[len(prefix) :].split(".")[0]))
+        layers = max(layer_ids) + 1 if layer_ids else 2
         heads = int(meta.get("heads", 4)) if meta.get("heads") else 4
-        while hidden % heads != 0 and heads > 1:
-            heads -= 1
         return BridgeConfig(
             arch=ARCH_TRANS,
             dim=dim,
             hidden=hidden,
-            layers=max(layers, 1),
+            layers=layers,
             heads=heads,
-            max_tokens=int(meta.get("max_tokens", 4096)),
-            mode=meta.get("mode", "any"),
-            name=meta.get("name", "wushu_trans_bridge"),
+            name=meta.get("name", "kinetix_trans_bridge"),
         )
-    raise ValueError("无法识别的桥权重：既不是 MLP 也不是 Transformer 结构。")
+
+    raise ValueError("Unrecognized bridge weights: matches neither MLP nor Transformer architecture.")
 
 
 def load_bridge(path: str, device: str = "cpu", dtype: torch.dtype = torch.float32) -> WushuBridge:
-    """加载残差桥。兼容社区版 ``MiniMaxH3_SemanticBridge_v1.safetensors``。"""
+    """Loads combat residual bridge (.safetensors)."""
     from safetensors import safe_open
     from safetensors.torch import load_file
 
     if not os.path.isfile(path):
-        raise FileNotFoundError(f"找不到残差桥权重：{path}")
+        raise FileNotFoundError(f"Cannot find bridge weight file: {path}")
 
-    meta: Dict[str, str] = {}
     with safe_open(path, framework="pt", device="cpu") as f:
         meta = dict(f.metadata() or {})
     state = load_file(path, device="cpu")
-
-    if meta.get("arch") in SUPPORTED_ARCHS:
-        cfg = BridgeConfig(
-            arch=meta["arch"],
-            dim=int(meta.get("dim", 5120)),
-            hidden=int(meta.get("hidden", 512)),
-            layers=int(meta.get("layers", 2)),
-            heads=int(meta.get("heads", 4)),
-            dropout=float(meta.get("dropout", 0.0)),
-            max_tokens=int(meta.get("max_tokens", 4096)),
-            mode=meta.get("mode", "any"),
-            name=meta.get("name", os.path.basename(path)),
-            note=meta.get("note", ""),
-        )
-        if meta.get("extra_json"):
-            try:
-                cfg.extra = json.loads(meta["extra_json"])
-            except Exception:
-                cfg.extra = {}
-    else:
-        cfg = config_from_metadata(meta, state)
+    cfg = infer_config_from_state(state, meta)
 
     model = WushuBridge(cfg)
-    model.load_state_dict(state, strict=True)
+    clean_state = {}
+    for k, v in state.items():
+        if not k.startswith("net.") and hasattr(model, "net"):
+            clean_state[f"net.{k}"] = v
+        else:
+            clean_state[k] = v
+    model.load_state_dict(clean_state, strict=False)
     model = model.to(device=device, dtype=dtype)
     model.eval()
     for p in model.parameters():

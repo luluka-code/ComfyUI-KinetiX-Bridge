@@ -1,78 +1,90 @@
 # ComfyUI-KinetiX-Bridge
-**MiniMax-H3 5120-d Combat Semantic Bridge (Runtime Inference)**
+**MiniMax-H3 5120-d Combat Semantic Bridge (Pure Inference Runtime)**
 
 [![ComfyUI](https://img.shields.io/badge/ComfyUI-Custom--Node-blue.svg)](https://github.com/comfyanonymous/ComfyUI)
 [![MiniMax-H3](https://img.shields.io/badge/Model-MiniMax--H3-orange.svg)]()
 [![License](https://img.shields.io/badge/License-Apache--2.0-green.svg)]()
 
-专为 **MiniMax-H3** 动作视频打造的原生 5120 维物理因果与打击感语义残差桥（纯推理运行时）。
-无需重新微调庞大的扩散底模，通过加载预训练的轻量级 `.safetensors` 语义桥模型，直接在 Conditioning 流形空间中修正动作因果，攻克 AI 打斗中常见的**“空气假打、各打各的、木偶人受击无硬直”**三大通病。
+A high-performance, native 5120-d physical causality and combat semantic bridge designed specifically for **MiniMax-H3** action video generation.
+Without fine-tuning the heavy DiT diffusion base model, it directly operates in the 5120-d Conditioning manifold to solve common AI combat issues such as **"phantom punching, disconnected actions, and mannequin-like lack of hit reactions"**.
 
 ---
 
-## 🌟 核心特性 (Key Features)
+## 🌟 Key Features
 
-1. **5120 维原生流形切向注入**：
-   - 严格在 MiniMax-H3 原生 5120 维语义空间内执行切向残差变换，保持模长与语义锚点（$1-\cos < 0.02$），**动作爆燃的同时人物面部、服装与场景风格 0 变异**。
-2. **Ref2VA（图生视频/首尾帧）专属 `tail` 保护模式**：
-   - 自动识别图像视觉 Token（通常 2000~5000+ 个 Token），开启 `token_span = tail` 即可**绝对冻结参考图视觉特征**，只精准微调尾部的打斗动作描述。
-3. **原生支持超长序列（5412+ Tokens）**：
-   - 采用解析正弦位置编码（Sinusoidal Position Embeddings），突破固定上下文长度限制，任意超长图生视频工作流永不报张量维度不匹配错误。
-4. **极致轻量（Runtime Only）**：
-   - 纯 Python 编写，零冗余训练依赖，即装即用。
-
----
-
-## 📦 节点说明 (Node Overview)
-
-在 ComfyUI 节点右键菜单的 **`MiniMax H3/KinetiX Bridge`** 分类下：
-
-- **`KinetiX 武打语义逻辑桥 (Combat Semantic Bridge)`**：
-  - 核心推理节点，串接在 `CLIPTextEncode` 与采样器之间，将预训练的打斗因果残差注入 Conditioning。
-- **`KinetiX 清理缓存 (Clear Cache)`**：
-  - 辅助工具节点，一键释放驻留显存的桥模型。
+1. **5120-d Native Manifold Tangent Projection**:
+   - Operates strictly within the native 5120-d latent space of the MiniMax-H3 text encoder. Maintains energy magnitude and semantic anchors ($1 - \cos < 0.02$), delivering intense combat impact while **strictly preserving character facial identity, costume details, and scene artstyle**.
+2. **Ref2VA `tail` Guard Mode (Image-to-Video / Keyframe Protection)**:
+   - Automatically detects visual tokens in reference image conditioning (typically 2,000 to 5,000+ tokens). Enabling `token_span = tail` **absolutely freezes reference face embeddings**, modifying only the trailing action tokens.
+3. **Native Support for Super-Long Sequences (5412+ Tokens)**:
+   - Employs analytical sinusoidal position embeddings, breaking fixed sequence length boundaries. Never throws tensor dimension mismatch errors on multi-reference long conditioning.
+4. **Ultra-Lightweight Pure Runtime (< 30 KB)**:
+   - Zero training dependencies, instant cold boot, and minimal VRAM footprint.
 
 ---
 
-## 🚀 安装与使用 (Installation & Quick Start)
+## 📦 Node Overview
 
-### 1. 安装插件
+Located under **`MiniMax H3/KinetiX Bridge`** in the ComfyUI node menu:
 
-在你的 ComfyUI 根目录下的 `custom_nodes` 执行克隆：
+- **`KinetiX Combat Semantic Bridge`** (`KinetiXSemanticBridge`):
+  - Injects pre-trained combat physical causality into Conditioning between `CLIPTextEncode` and the sampler.
+- **`KinetiX Clear Cache`** (`KinetiXClearCache`):
+  - Frees cached bridge weights and clears intermediate VRAM allocations.
+
+---
+
+## 🚀 Installation & Quick Start
+
+### 1. Installation
+
+Clone this repository into your ComfyUI `custom_nodes` directory:
 
 ```bash
 cd ComfyUI/custom_nodes
 git clone https://github.com/luluka-code/ComfyUI-KinetiX-Bridge.git
 ```
 
-### 2. 模型存放
+Restart ComfyUI to load the nodes.
 
-将训练好或下载的 `.safetensors` 语义桥模型放置在：
+### 2. Model Weights Placement
+
+Place your pre-trained `.safetensors` bridge weights into:
 ```text
 ComfyUI/models/wushu_bridge/
 ```
-*(例如：`kinetix_combat_bridge_v1.safetensors`)*
+*(Example: `kinetix_combat_bridge_v1.safetensors`)*
 
 ---
 
-## 🎛️ 黄金推荐参数指南 (Recommended Settings)
+## 🎛️ Recommended Parameter Guide
 
-在 **`KinetiX 武打语义逻辑桥`** 节点上，请根据生成场景选择推荐配置：
+### Mode A: Text-to-Video (T2V) — Maximum Kinetic Impact
+- **`bridge`**: Select your `.safetensors` weight
+- **`alpha`**: `0.18 ~ 0.25` (unleashes clashing sparks, heavy recoil, and staggered knockbacks)
+- **`magnitude_match`**: `per_token` (preserves token energy to prevent saturation/color shift)
+- **`token_span`**: `all`
 
-### 模式 A：文生视频 (T2V) —— 极致击飞与硬碰硬
-- **`bridge`**：选择你的权重（如 `kinetix_combat_bridge_v1.safetensors`）
-- **`alpha`**：`0.18 ~ 0.25`（获得极具张力的卡肉、碰撞火星与受击退步）
-- **`magnitude_match`**：`per_token`（保护特征模长守恒，防过曝偏色）
-- **`token_span`**：`all`
+### Mode B: Reference-to-Video / Keyframes (Ref2VA) — Face Identity Preservation
+- **`bridge`**: Select your `.safetensors` weight
+- **`alpha`**: `0.10 ~ 0.12` (smooth combat motion release)
+- **`magnitude_match`**: `per_token`
+- **`token_span`**: `tail` ⭐️ **(Crucial! Skips reference image visual tokens to prevent facial deformation)**
+- **`tail_ratio`**: `0.5`
 
-### 模式 B：图生视频 / 首尾帧 (Ref2VA) —— 保护人脸长相
-- **`bridge`**：选择你的权重
-- **`alpha`**：`0.10 ~ 0.12`（温和释放动作）
-- **`magnitude_match`**：`per_token`
-- **`token_span`**：`tail` ⭐️ **（必选！跳过参考图图像 Token，防人脸走样）**
-- **`tail_ratio`**：`0.5`
+---
+
+## 💡 Technical Insights
+
+### Why 5120-d Semantic Bridge instead of LoRA?
+MiniMax-H3's DiT text cross-attention layers are highly sensitive to prompt semantics. Traditional combat prompts frequently suffer from semantic attenuation (e.g., "dodges blade" turning into static staring). 
+
+The KinetiX Bridge projects the prompt conditioning along the physical causality gradient derived from hundreds of film-grade action choreographies, enforcing:
+- **Contact Alignment**: Blades and shields physically collide on the hit frame with recoil sparks.
+- **Momentum Transfer**: The defender's center of mass staggers backward upon heavy impact.
+- **Mutual Eye Gaze**: Opponents maintain locked line-of-sight during exchanges.
 
 ---
 
 ## 📄 License
-本项目基于 Apache-2.0 开源协议。
+This project is licensed under the Apache-2.0 License.

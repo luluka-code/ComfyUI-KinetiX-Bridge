@@ -1,7 +1,7 @@
 """ComfyUI-KinetiX-Bridge: MiniMax-H3 5120-d Combat Semantic Bridge.
 
-专为 MiniMax-H3 动作视频打造的 5120 维物理因果与打击感语义残差桥。
-在文本/参考图条件空间注入真实物理受击、武器碰撞与动量传递因果。
+High-impact physical causality and martial arts action semantic bridge for MiniMax-H3.
+Injects real hit reactions, weapon clashing recoil, and momentum transfer into Conditioning space.
 """
 
 from .kinetix_bridge.nodes import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
@@ -14,4 +14,3 @@ __all__ = [
     "NODE_DISPLAY_NAME_MAPPINGS",
     "__version__",
 ]
-
