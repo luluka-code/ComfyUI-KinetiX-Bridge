@@ -21,55 +21,86 @@ from .apply import MAGNITUDE_MODES, TEXT_SPAN_MODES, apply_bridge_to_conditionin
 from .bridge_model import load_bridge
 
 MODELS_ROOT = folder_paths.models_dir if folder_paths is not None else "models"
-BRIDGE_DIR = os.path.join(MODELS_ROOT, "wushu_bridge")
-os.makedirs(BRIDGE_DIR, exist_ok=True)
+KINETIX_BRIDGE_DIR = os.path.join(MODELS_ROOT, "kinetix_bridge")
+WUSHU_BRIDGE_DIR = os.path.join(MODELS_ROOT, "wushu_bridge")
+LORAS_DIR = os.path.join(MODELS_ROOT, "loras")
+LOCAL_MODELS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
+
+# 确保核心目录存在
+os.makedirs(KINETIX_BRIDGE_DIR, exist_ok=True)
+os.makedirs(WUSHU_BRIDGE_DIR, exist_ok=True)
 
 if folder_paths is not None:
-    try:
-        folder_paths.add_model_folder_path("wushu_bridge", BRIDGE_DIR)
-    except Exception:
-        pass
+    for cat_name, p in [("kinetix_bridge", KINETIX_BRIDGE_DIR), ("wushu_bridge", WUSHU_BRIDGE_DIR)]:
+        try:
+            folder_paths.add_model_folder_path(cat_name, p)
+        except Exception:
+            pass
 
 _BRIDGE_CACHE: Dict[Tuple[str, str], Any] = {}
 
 
 def _list_weights() -> List[str]:
-    files = []
+    """同时扫描 kinetix_bridge、wushu_bridge、loras 以及本地 models 目录中的 .safetensors 权重文件。"""
+    files: List[str] = []
+    
+    # 1. 通过 ComfyUI 标准 folder_paths 接口扫描注册目录
     if folder_paths is not None:
-        try:
-            flist = folder_paths.get_filename_list("wushu_bridge")
-            files.extend([f for f in flist if f.lower().endswith(".safetensors")])
-        except Exception:
-            pass
-    if os.path.isdir(BRIDGE_DIR):
-        files.extend([f for f in os.listdir(BRIDGE_DIR) if f.lower().endswith(".safetensors")])
+        for cat in ("kinetix_bridge", "wushu_bridge", "loras"):
+            try:
+                flist = folder_paths.get_filename_list(cat)
+                files.extend([f for f in flist if f.lower().endswith(".safetensors")])
+            except Exception:
+                pass
 
-    local_models = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
-    if os.path.isdir(local_models):
-        files.extend([f for f in os.listdir(local_models) if f.lower().endswith(".safetensors")])
+    # 2. 本地文件系统直接递归扫描（兼容未启动 ComfyUI 或相对路径/独立运行）
+    search_dirs = [KINETIX_BRIDGE_DIR, WUSHU_BRIDGE_DIR, LORAS_DIR, LOCAL_MODELS_DIR]
+    for sdir in search_dirs:
+        if os.path.isdir(sdir):
+            for root, _, fnames in os.walk(sdir):
+                for fname in fnames:
+                    if fname.lower().endswith(".safetensors"):
+                        rel = os.path.relpath(os.path.join(root, fname), sdir)
+                        files.append(rel if rel != "." else fname)
 
     unique_files = sorted(list(set(files)))
     return unique_files if unique_files else ["none"]
 
 
 def _resolve_weight(name: str) -> str:
+    """按优先级顺序在多个模型目录中定位权重绝对路径。"""
+    # 1. 优先通过 ComfyUI 标准系统路径解析
     if folder_paths is not None:
-        try:
-            path = folder_paths.get_full_path("wushu_bridge", name)
-            if path and os.path.isfile(path):
-                return path
-        except Exception:
-            pass
+        for cat in ("kinetix_bridge", "wushu_bridge", "loras"):
+            try:
+                path = folder_paths.get_full_path(cat, name)
+                if path and os.path.isfile(path):
+                    return path
+            except Exception:
+                pass
 
-    direct = os.path.join(BRIDGE_DIR, name)
-    if os.path.isfile(direct):
-        return direct
+    # 2. 在所有支持的目录中逐级搜索（含子目录）
+    search_dirs = [KINETIX_BRIDGE_DIR, WUSHU_BRIDGE_DIR, LORAS_DIR, LOCAL_MODELS_DIR]
+    for sdir in search_dirs:
+        if os.path.isdir(sdir):
+            # 直接匹配
+            candidate = os.path.join(sdir, name)
+            if os.path.isfile(candidate):
+                return candidate
+            # 递归匹配文件名
+            for root, _, fnames in os.walk(sdir):
+                if name in fnames:
+                    return os.path.join(root, name)
 
-    local = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models", name)
-    if os.path.isfile(local):
-        return local
-
-    raise FileNotFoundError(f"Cannot find semantic bridge weight file: {name} (Please place .safetensors in {BRIDGE_DIR})")
+    raise FileNotFoundError(
+        f"Cannot find semantic bridge weight file: '{name}'.\n"
+        f"Searched across multiple directories:\n"
+        f"  1. {KINETIX_BRIDGE_DIR}\n"
+        f"  2. {WUSHU_BRIDGE_DIR}\n"
+        f"  3. {LORAS_DIR}\n"
+        f"  4. {LOCAL_MODELS_DIR}\n"
+        f"Please place your .safetensors bridge model in any of the above locations."
+    )
 
 
 def _pick_torch_device(choice: str) -> str:
@@ -80,7 +111,11 @@ def _pick_torch_device(choice: str) -> str:
 
 def _get_bridge(name: str, device: str):
     if name == "none":
-        raise ValueError("Please select a valid semantic bridge weight file (.safetensors). If dropdown is empty, place your weights in ComfyUI/models/wushu_bridge/).")
+        raise ValueError(
+            "Please select a valid semantic bridge weight file (.safetensors). "
+            "If dropdown is empty, place your weights in ComfyUI/models/kinetix_bridge/ "
+            "(or models/loras/, models/wushu_bridge/)."
+        )
     key = (name, device)
     if key not in _BRIDGE_CACHE:
         path = _resolve_weight(name)
