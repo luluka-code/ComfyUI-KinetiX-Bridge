@@ -6,11 +6,9 @@ Injects real hit reactions, weapon clashing recoil, and momentum transfer into C
 
 from .kinetix_bridge.nodes import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
 
-__version__ = "1.0.3"
 WEB_DIRECTORY = None
 
 __all__ = [
     "NODE_CLASS_MAPPINGS",
     "NODE_DISPLAY_NAME_MAPPINGS",
-    "__version__",
 ]

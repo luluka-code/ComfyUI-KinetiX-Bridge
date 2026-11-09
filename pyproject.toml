@@ -1,7 +1,7 @@
 [project]
 name = "comfyui-kinetix-bridge"
 description = "MiniMax-H3 5120-d Combat Semantic Bridge for High-Impact Martial Arts and Combat Action Video Generation"
-version = "1.0.3"
+version = "1.0.4"
 license = { text = "Apache-2.0" }
 readme = "README.md"
 dependencies = [
