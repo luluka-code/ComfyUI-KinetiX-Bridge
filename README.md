@@ -50,6 +50,21 @@ Restart ComfyUI after installation.
 
 ---
 
+## 🕹️ Example Workflows
+Ready-to-run official example workflows are provided in the `workflows/` directory:
+
+1. **Text-to-Video (T2V) Mode**:
+   * [`workflows/KinetiX_Combat_Bridge_T2V_Workflow.json`](workflows/KinetiX_Combat_Bridge_T2V_Workflow.json)
+   * *Pure text-to-video workflow without reference images. Pre-configured with `alpha: 0.20` and `token_span: all` for maximum combat clashes and recoil.*
+
+2. **Reference-to-Video (Ref2VA) Mode**:
+   * [`workflows/KinetiX_Combat_Bridge_Ref2VA_Workflow.json`](workflows/KinetiX_Combat_Bridge_Ref2VA_Workflow.json)
+   * *Supports multi-image character, weapon, and scene conditioning. Pre-configured with `alpha: 0.12` and `token_span: tail` to lock character face & costume identity.*
+
+Simply drag and drop either JSON directly into your ComfyUI canvas! Both workflows come pre-wired with auto-downloading enabled.
+
+---
+
 ## 📦 Node Menu
 Found under: **`MiniMax H3/KinetiX Bridge`** -> `KinetiX Combat Semantic Bridge`
 
