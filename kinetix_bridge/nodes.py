@@ -313,23 +313,15 @@ class KinetixClearCache:
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Node Mappings (Backwards compatible aliases preserved)
+# Node Mappings
 # ══════════════════════════════════════════════════════════════════════
 
 NODE_CLASS_MAPPINGS = {
-    # Official Standard Names
     "KinetiXSemanticBridge": KinetiXSemanticBridge,
     "KinetixClearCache": KinetixClearCache,
-
-    # Backwards Compatibility Aliases
-    "H3WushuSemanticBridge": KinetiXSemanticBridge,
-    "H3WushuClearCache": KinetixClearCache,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "KinetiXSemanticBridge": "KinetiX Combat Semantic Bridge",
     "KinetixClearCache": "KinetiX Clear Cache",
-
-    "H3WushuSemanticBridge": "KinetiX Combat Semantic Bridge [Legacy]",
-    "H3WushuClearCache": "KinetiX Clear Cache [Legacy]",
 }
