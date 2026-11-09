@@ -3,13 +3,16 @@
 Loads pre-trained 5120-d combat semantic bridge weights (.safetensors),
 injecting authentic impact recoil and physical causality into action video generation
 without fine-tuning the base diffusion model.
+
+Supports:
+1. Automatic downloading from Hugging Face (kinetixfx/Kinetix_Combat_Bridge) & domestic mirror (hf-mirror.com).
+2. Manual on-disk weight scanning across multiple directories (models/kinetix_bridge, models/loras, etc.).
 """
 
 from __future__ import annotations
 
 import os
 from typing import Any, Dict, List, Tuple
-
 import torch
 
 try:
@@ -39,21 +42,85 @@ if folder_paths is not None:
 
 _BRIDGE_CACHE: Dict[Tuple[str, str], Any] = {}
 
+# 官方 Hugging Face 权重元数据
+HF_REPO_ID = "kinetixfx/Kinetix_Combat_Bridge"
+HF_FILENAME = "kinetix_combat_bridge_v1.safetensors"
+AUTO_DOWNLOAD_LABEL = f"{HF_FILENAME} (Auto Download)"
+
+
+def _download_official_model(repo_id: str = HF_REPO_ID, filename: str = HF_FILENAME) -> str:
+    """自动下载官方权重至 models/kinetix_bridge/ 目录。支持 Hugging Face 官方源与国内高速镜像双通道容错。"""
+    os.makedirs(KINETIX_BRIDGE_DIR, exist_ok=True)
+    target_path = os.path.join(KINETIX_BRIDGE_DIR, filename)
+
+    if os.path.isfile(target_path) and os.path.getsize(target_path) > 1024 * 1024:
+        return target_path
+
+    print(f"\n[KinetiX Bridge] Official model '{filename}' not found locally.")
+    print(f"[KinetiX Bridge] Starting automatic download from Hugging Face: {repo_id}...")
+
+    # 通道 1: 尝试 huggingface_hub
+    try:
+        from huggingface_hub import hf_hub_download
+        downloaded = hf_hub_download(
+            repo_id=repo_id,
+            filename=filename,
+            local_dir=KINETIX_BRIDGE_DIR,
+            local_dir_use_symlinks=False,
+        )
+        if os.path.isfile(downloaded) and os.path.getsize(downloaded) > 1024 * 1024:
+            print(f"[KinetiX Bridge] Successfully downloaded via huggingface_hub to: {downloaded}")
+            return downloaded
+    except Exception as e:
+        print(f"[KinetiX Bridge] huggingface_hub download attempt failed ({e}), switching to direct stream...")
+
+    # 通道 2 & 3: torch.hub 流式下载（依次尝试自定义 HF_ENDPOINT、官方源与国内高速镜像 hf-mirror.com）
+    endpoints = []
+    custom_ep = os.environ.get("HF_ENDPOINT", "").rstrip("/")
+    if custom_ep:
+        endpoints.append(custom_ep)
+    endpoints.extend(["https://huggingface.co", "https://hf-mirror.com"])
+
+    last_err = None
+    for ep in endpoints:
+        url = f"{ep}/{repo_id}/resolve/main/{filename}"
+        try:
+            print(f"[KinetiX Bridge] Connecting to: {url} ...")
+            torch.hub.download_url_to_file(url, target_path, progress=True)
+            if os.path.isfile(target_path) and os.path.getsize(target_path) > 1024 * 1024:
+                print(f"[KinetiX Bridge] Successfully downloaded model to {target_path}")
+                return target_path
+        except Exception as err:
+            last_err = err
+            print(f"[KinetiX Bridge] Download attempt from {ep} failed: {err}. Trying next mirror...")
+
+    # 若全部通道失败，提供清晰的手动下载指南
+    raise RuntimeError(
+        f"[KinetiX Bridge] Failed to automatically download '{filename}' from Hugging Face.\n"
+        f"Error details: {last_err}\n\n"
+        f"Manual Download Instructions:\n"
+        f"  1. Download '{filename}' from:\n"
+        f"     https://huggingface.co/{repo_id}/blob/main/{filename}\n"
+        f"     (or Mirror: https://hf-mirror.com/{repo_id}/blob/main/{filename})\n"
+        f"  2. Place the file into:\n"
+        f"     {KINETIX_BRIDGE_DIR}/\n"
+    )
+
 
 def _list_weights() -> List[str]:
-    """同时扫描 kinetix_bridge、wushu_bridge、loras 以及本地 models 目录中的 .safetensors 权重文件。"""
-    files: List[str] = []
-    
-    # 1. 通过 ComfyUI 标准 folder_paths 接口扫描注册目录
+    """同时提供官方云端自动下载项与本地已下载/手动放置的权重扫描。"""
+    models: List[str] = [AUTO_DOWNLOAD_LABEL]
+
+    # 1. 扫描本地各目录
+    on_disk: List[str] = []
     if folder_paths is not None:
         for cat in ("kinetix_bridge", "wushu_bridge", "loras"):
             try:
                 flist = folder_paths.get_filename_list(cat)
-                files.extend([f for f in flist if f.lower().endswith(".safetensors")])
+                on_disk.extend([f for f in flist if f.lower().endswith(".safetensors")])
             except Exception:
                 pass
 
-    # 2. 本地文件系统直接递归扫描（兼容未启动 ComfyUI 或相对路径/独立运行）
     search_dirs = [KINETIX_BRIDGE_DIR, WUSHU_BRIDGE_DIR, LORAS_DIR, LOCAL_MODELS_DIR]
     for sdir in search_dirs:
         if os.path.isdir(sdir):
@@ -61,45 +128,64 @@ def _list_weights() -> List[str]:
                 for fname in fnames:
                     if fname.lower().endswith(".safetensors"):
                         rel = os.path.relpath(os.path.join(root, fname), sdir)
-                        files.append(rel if rel != "." else fname)
+                        on_disk.append(rel if rel != "." else fname)
 
-    unique_files = sorted(list(set(files)))
-    return unique_files if unique_files else ["none"]
+    unique_on_disk = sorted(list(set(on_disk)))
+    for item in unique_on_disk:
+        display_name = f"{item} (on disk)"
+        if display_name not in models:
+            models.append(display_name)
+
+    return models
 
 
 def _resolve_weight(name: str) -> str:
-    """按优先级顺序在多个模型目录中定位权重绝对路径。"""
-    # 1. 优先通过 ComfyUI 标准系统路径解析
+    """按优先级顺序在多个模型目录中定位权重绝对路径，支持自动下载。"""
+    clean_name = name
+
+    # 1. 如果选择了 "(Auto Download)"，直接触发自动下载并返回下载路径
+    if clean_name.endswith(" (Auto Download)"):
+        clean_name = clean_name.replace(" (Auto Download)", "").strip()
+        return _download_official_model(HF_REPO_ID, clean_name or HF_FILENAME)
+
+    # 2. 如果是 "(on disk)" 本地选项，剥离后缀后查找
+    if clean_name.endswith(" (on disk)"):
+        clean_name = clean_name.replace(" (on disk)", "").strip()
+
+    # 3. 优先通过 ComfyUI 标准系统路径解析
     if folder_paths is not None:
         for cat in ("kinetix_bridge", "wushu_bridge", "loras"):
             try:
-                path = folder_paths.get_full_path(cat, name)
+                path = folder_paths.get_full_path(cat, clean_name)
                 if path and os.path.isfile(path):
                     return path
             except Exception:
                 pass
 
-    # 2. 在所有支持的目录中逐级搜索（含子目录）
+    # 4. 在所有支持的目录中逐级搜索（含子目录）
     search_dirs = [KINETIX_BRIDGE_DIR, WUSHU_BRIDGE_DIR, LORAS_DIR, LOCAL_MODELS_DIR]
     for sdir in search_dirs:
         if os.path.isdir(sdir):
-            # 直接匹配
-            candidate = os.path.join(sdir, name)
+            candidate = os.path.join(sdir, clean_name)
             if os.path.isfile(candidate):
                 return candidate
-            # 递归匹配文件名
             for root, _, fnames in os.walk(sdir):
-                if name in fnames:
-                    return os.path.join(root, name)
+                if clean_name in fnames:
+                    return os.path.join(root, clean_name)
+
+    # 5. 容错：如果用户选了官方模型名字但本地不存在，自动下载拯救
+    if "kinetix_combat_bridge" in clean_name.lower():
+        return _download_official_model(HF_REPO_ID, HF_FILENAME)
 
     raise FileNotFoundError(
-        f"Cannot find semantic bridge weight file: '{name}'.\n"
+        f"Cannot find semantic bridge weight file: '{clean_name}'.\n"
         f"Searched across multiple directories:\n"
         f"  1. {KINETIX_BRIDGE_DIR}\n"
         f"  2. {WUSHU_BRIDGE_DIR}\n"
         f"  3. {LORAS_DIR}\n"
         f"  4. {LOCAL_MODELS_DIR}\n"
-        f"Please place your .safetensors bridge model in any of the above locations."
+        f"Please select '{AUTO_DOWNLOAD_LABEL}' to auto-download from Hugging Face,\n"
+        f"or manually place '{clean_name}' into any of the above locations."
     )
 
 
@@ -113,8 +199,7 @@ def _get_bridge(name: str, device: str):
     if name == "none":
         raise ValueError(
             "Please select a valid semantic bridge weight file (.safetensors). "
-            "If dropdown is empty, place your weights in ComfyUI/models/kinetix_bridge/ "
-            "(or models/loras/, models/wushu_bridge/)."
+            f"Select '{AUTO_DOWNLOAD_LABEL}' to automatically download from Hugging Face."
         )
     key = (name, device)
     if key not in _BRIDGE_CACHE:
@@ -138,6 +223,7 @@ class KinetiXSemanticBridge:
     outputting physically enhanced CONDITIONING with contact points,
     staggered recoil, and clashing sparks.
     Preserves all native metadata including minimax_keyframes and minimax_refs.
+    Supports auto-downloading from Hugging Face and local on-disk scanning.
     """
 
     @classmethod
@@ -145,7 +231,10 @@ class KinetiXSemanticBridge:
         return {
             "required": {
                 "conditioning": ("CONDITIONING",),
-                "bridge": (_list_weights(),),
+                "bridge": (_list_weights(), {
+                    "default": AUTO_DOWNLOAD_LABEL,
+                    "tooltip": "Select semantic bridge model. '(Auto Download)' automatically downloads from HuggingFace (kinetixfx/Kinetix_Combat_Bridge) to models/kinetix_bridge/. '(on disk)' uses local weights."
+                }),
                 "alpha": ("FLOAT", {"default": 0.18, "min": 0.0, "max": 1.0, "step": 0.01,
                                     "tooltip": "Injection strength: 0.18-0.25 for T2V; 0.10-0.12 for Ref2VA."}),
                 "magnitude_match": (list(MAGNITUDE_MODES), {"default": "per_token",

@@ -3,6 +3,7 @@
 
 [![ComfyUI](https://img.shields.io/badge/ComfyUI-Custom--Node-blue.svg)](https://github.com/comfyanonymous/ComfyUI)
 [![MiniMax-H3](https://img.shields.io/badge/Model-MiniMax--H3-orange.svg)]()
+[![HuggingFace](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Models-yellow)](https://huggingface.co/kinetixfx/Kinetix_Combat_Bridge)
 [![License](https://img.shields.io/badge/License-Apache--2.0-green.svg)]()
 
 A lightweight runtime node for **MiniMax-H3** that injects authentic physical combat causality, heavy impact recoil, and contact alignment into action video generation without facial deformation or style drift.
@@ -18,12 +19,19 @@ git clone https://github.com/luluka-code/ComfyUI-KinetiX-Bridge.git
 ```
 Restart ComfyUI after installation.
 
-### 2. Model Placement
-Place your `.safetensors` bridge weights into any of the following directories (the node scans all of them automatically):
-* `ComfyUI/models/kinetix_bridge/` *(Recommended standard)*
-* `ComfyUI/models/loras/`
-* `ComfyUI/models/wushu_bridge/`
-* `ComfyUI/custom_nodes/ComfyUI-KinetiX-Bridge/models/`
+### 2. Model Loading (Auto Download or Manual)
+
+* **Option A: Auto Download (Recommended)**  
+  Simply leave the `bridge` dropdown on:  
+  `kinetix_combat_bridge_v1.safetensors (Auto Download)`  
+  The node will automatically download the official weights (~16 MB) from [Hugging Face (kinetixfx/Kinetix_Combat_Bridge)](https://huggingface.co/kinetixfx/Kinetix_Combat_Bridge) directly into `ComfyUI/models/kinetix_bridge/`. Built-in mirror fallback is included.
+
+* **Option B: Manual Download**  
+  Download [`kinetix_combat_bridge_v1.safetensors`](https://huggingface.co/kinetixfx/Kinetix_Combat_Bridge/blob/main/kinetix_combat_bridge_v1.safetensors) manually and place it into any of the scanned directories:
+  * `ComfyUI/models/kinetix_bridge/` *(Recommended standard)*
+  * `ComfyUI/models/loras/`
+  * `ComfyUI/models/wushu_bridge/`
+  * `ComfyUI/custom_nodes/ComfyUI-KinetiX-Bridge/models/`
 
 ---
 
