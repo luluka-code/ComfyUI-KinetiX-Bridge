@@ -56,13 +56,15 @@ def _download_official_model(repo_id: str = HF_REPO_ID, filename: str = HF_FILEN
     target_path = os.path.join(KINETIX_BRIDGE_DIR, filename)
 
     if os.path.isfile(target_path) and os.path.getsize(target_path) > 1024 * 1024:
+        print(f"[KinetiX Bridge] [Downloader] Local model already exists ({os.path.getsize(target_path)} bytes): '{target_path}'. Skipping download.")
         return target_path
 
-    print(f"\n[KinetiX Bridge] Official model '{filename}' not found locally.")
-    print(f"[KinetiX Bridge] Starting automatic download from Hugging Face: {repo_id}...")
+    print(f"\n[KinetiX Bridge] [Downloader] Official model '{filename}' not found locally.")
+    print(f"[KinetiX Bridge] [Downloader] Starting automatic download from repo '{repo_id}' -> '{target_path}'")
 
     # 通道 1: 尝试 huggingface_hub
     try:
+        print(f"[KinetiX Bridge] [Downloader] [Channel 1] Attempting fast download via huggingface_hub...")
         from huggingface_hub import hf_hub_download
         downloaded = hf_hub_download(
             repo_id=repo_id,
@@ -70,10 +72,10 @@ def _download_official_model(repo_id: str = HF_REPO_ID, filename: str = HF_FILEN
             local_dir=KINETIX_BRIDGE_DIR,
         )
         if os.path.isfile(downloaded) and os.path.getsize(downloaded) > 1024 * 1024:
-            print(f"[KinetiX Bridge] Successfully downloaded via huggingface_hub to: {downloaded}")
+            print(f"[KinetiX Bridge] [Downloader] [Channel 1] Download succeeded via huggingface_hub: {downloaded} ({os.path.getsize(downloaded)} bytes)")
             return downloaded
     except Exception as e:
-        print(f"[KinetiX Bridge] huggingface_hub download attempt failed ({e}), switching to direct stream...")
+        print(f"[KinetiX Bridge] [Downloader] [Channel 1] huggingface_hub bypassed/failed ({e}). Switching to direct stream mirrors...")
 
     # 通道 2 & 3: torch.hub 流式下载（依次尝试自定义 HF_ENDPOINT、官方源与国内高速镜像 hf-mirror.com）
     endpoints = []
@@ -86,14 +88,14 @@ def _download_official_model(repo_id: str = HF_REPO_ID, filename: str = HF_FILEN
     for ep in endpoints:
         url = f"{ep}/{repo_id}/resolve/main/{filename}"
         try:
-            print(f"[KinetiX Bridge] Connecting to: {url} ...")
+            print(f"[KinetiX Bridge] [Downloader] [Stream Channel] Connecting to: {url} ...")
             torch.hub.download_url_to_file(url, target_path, progress=True)
             if os.path.isfile(target_path) and os.path.getsize(target_path) > 1024 * 1024:
-                print(f"[KinetiX Bridge] Successfully downloaded model to {target_path}")
+                print(f"[KinetiX Bridge] [Downloader] Successfully downloaded model ({os.path.getsize(target_path)} bytes) to: {target_path}")
                 return target_path
         except Exception as err:
             last_err = err
-            print(f"[KinetiX Bridge] Download attempt from {ep} failed: {err}. Trying next mirror...")
+            print(f"[KinetiX Bridge] [Downloader] Mirror {ep} failed: {err}. Trying next mirror...")
 
     # 若全部通道失败，提供清晰的手动下载指南
     raise RuntimeError(
@@ -149,16 +151,19 @@ def _resolve_weight(name: str) -> str:
         )
 
     clean_name = str(name).strip()
+    print(f"\n[KinetiX Bridge] [Resolver] Input selection string: '{clean_name}'")
 
     # 1. 如果包含 "(Auto Download)"，直接根据名称智能判断并触发官方下载
     if "(Auto Download)" in clean_name:
         fn = clean_name.replace("(Auto Download)", "").strip()
         target_fn = HF_FILENAME_V1 if ("v1.safetensors" in fn.lower() and "v1.1" not in fn.lower()) else HF_FILENAME_V1_1
+        print(f"[KinetiX Bridge] [Resolver] Matched Auto Download token -> Target official weight: '{target_fn}'")
         return _download_official_model(HF_REPO_ID, target_fn)
 
     # 2. 如果是 "(on disk)" 本地选项，剥离后缀后查找
     if "(on disk)" in clean_name:
         clean_name = clean_name.replace("(on disk)", "").strip()
+        print(f"[KinetiX Bridge] [Resolver] Stripped (on disk) suffix -> Filename: '{clean_name}'")
 
     # 3. 优先通过 ComfyUI 标准系统路径解析
     if folder_paths is not None:
@@ -166,6 +171,7 @@ def _resolve_weight(name: str) -> str:
             try:
                 path = folder_paths.get_full_path(cat, clean_name)
                 if path and os.path.isfile(path):
+                    print(f"[KinetiX Bridge] [Resolver] Found via ComfyUI folder_paths ('{cat}'): '{path}'")
                     return path
             except Exception:
                 pass
@@ -176,18 +182,24 @@ def _resolve_weight(name: str) -> str:
         if os.path.isdir(sdir):
             candidate = os.path.join(sdir, clean_name)
             if os.path.isfile(candidate):
+                print(f"[KinetiX Bridge] [Resolver] Found on disk at: '{candidate}'")
                 return candidate
             for root, _, fnames in os.walk(sdir):
                 if clean_name in fnames:
-                    return os.path.join(root, clean_name)
+                    matched = os.path.join(root, clean_name)
+                    print(f"[KinetiX Bridge] [Resolver] Found on disk in subfolder: '{matched}'")
+                    return matched
 
     # 5. 容错与智能救援：只要用户指定了包含 1.1 或 v1 的官方权重名称（哪怕本地尚未下载），自动触发下载
     lower = clean_name.lower()
     if "1.1" in lower:
+        print(f"[KinetiX Bridge] [Resolver] Local file '{clean_name}' not found on disk. Auto-triggering v1.1 official download...")
         return _download_official_model(HF_REPO_ID, HF_FILENAME_V1_1)
     if "v1" in lower or "1.0" in lower or "kinetix_combat_bridge" in lower:
+        print(f"[KinetiX Bridge] [Resolver] Local file '{clean_name}' not found on disk. Auto-triggering v1.0 official download...")
         return _download_official_model(HF_REPO_ID, HF_FILENAME_V1)
 
+    print(f"[KinetiX Bridge] [Resolver] Failed to resolve weight '{clean_name}' across all directories and auto-download patterns.")
     raise FileNotFoundError(
         f"Cannot find semantic bridge weight file: '{clean_name}'.\n"
         f"Searched across multiple directories:\n"
@@ -215,7 +227,11 @@ def _get_bridge(name: str, device: str):
     key = (name, device)
     if key not in _BRIDGE_CACHE:
         path = _resolve_weight(name)
+        print(f"[KinetiX Bridge] Loading PyTorch model from '{path}' onto device '{device}'...")
         _BRIDGE_CACHE[key] = load_bridge(path, device=device)
+        print(f"[KinetiX Bridge] Model successfully loaded and cached in memory.")
+    else:
+        print(f"[KinetiX Bridge] Using in-memory cached model for ('{name}', '{device}').")
     return _BRIDGE_CACHE[key]
 
 
@@ -279,6 +295,7 @@ class KinetiXSemanticBridge:
         chunk_tokens,
         allow_dim_mismatch,
     ):
+        print(f"\n[KinetiX Bridge] >>> Execution start: bridge='{bridge}', alpha={alpha}, magnitude_match='{magnitude_match}', token_span='{token_span}'")
         dev = _pick_torch_device(device)
         model = _get_bridge(bridge, dev)
 
