@@ -1656,7 +1656,7 @@
         "Node name for S&R": "KinetiXSemanticBridge"
       },
       "widgets_values": [
-        "kinetix_combat_bridge_v1.safetensors (Auto Download)",
+        "kinetix_combat_bridge_v1.1.safetensors (Auto Download)",
         0.12,
         "per_token",
         "tail",

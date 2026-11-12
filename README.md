@@ -23,11 +23,11 @@ Restart ComfyUI after installation.
 
 * **Option A: Auto Download (Recommended)**  
   Simply leave the `bridge` dropdown on:  
-  `kinetix_combat_bridge_v1.safetensors (Auto Download)`  
-  The node will automatically download the official weights (~16 MB) from [Hugging Face (kinetixfx/Kinetix_Combat_Bridge)](https://huggingface.co/kinetixfx/Kinetix_Combat_Bridge) directly into `ComfyUI/models/kinetix_bridge/`. Built-in mirror fallback is included.
+  `kinetix_combat_bridge_v1.1.safetensors (Auto Download)`  
+  The node will automatically download the official weights (~16 MB) from [Hugging Face (kinetixfx/Kinetix_Combat_Bridge)](https://huggingface.co/kinetixfx/Kinetix_Combat_Bridge) directly into `ComfyUI/models/kinetix_bridge/`. Built-in mirror fallback is included. (Legacy `v1.0` is also selectable).
 
 * **Option B: Manual Download**  
-  Download [`kinetix_combat_bridge_v1.safetensors`](https://huggingface.co/kinetixfx/Kinetix_Combat_Bridge/blob/main/kinetix_combat_bridge_v1.safetensors) manually and place it into any of the scanned directories:
+  Download [`kinetix_combat_bridge_v1.1.safetensors`](https://huggingface.co/kinetixfx/Kinetix_Combat_Bridge/blob/main/kinetix_combat_bridge_v1.1.safetensors) (or legacy [`kinetix_combat_bridge_v1.safetensors`](https://huggingface.co/kinetixfx/Kinetix_Combat_Bridge/blob/main/kinetix_combat_bridge_v1.safetensors)) manually and place it into any of the scanned directories:
   * `ComfyUI/models/kinetix_bridge/` *(Recommended standard)*
   * `ComfyUI/models/loras/`
   * `ComfyUI/models/wushu_bridge/`
