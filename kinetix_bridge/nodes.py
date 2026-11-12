@@ -68,7 +68,6 @@ def _download_official_model(repo_id: str = HF_REPO_ID, filename: str = HF_FILEN
             repo_id=repo_id,
             filename=filename,
             local_dir=KINETIX_BRIDGE_DIR,
-            local_dir_use_symlinks=False,
         )
         if os.path.isfile(downloaded) and os.path.getsize(downloaded) > 1024 * 1024:
             print(f"[KinetiX Bridge] Successfully downloaded via huggingface_hub to: {downloaded}")
@@ -143,16 +142,23 @@ def _list_weights() -> List[str]:
 
 def _resolve_weight(name: str) -> str:
     """按优先级顺序在多个模型目录中定位权重绝对路径，支持自动下载。"""
-    clean_name = name
+    if not name or str(name).strip().lower() in ("none", "", "null"):
+        raise ValueError(
+            "Please select a valid semantic bridge weight file (.safetensors). "
+            f"Select '{AUTO_DOWNLOAD_LABEL}' to automatically download from Hugging Face."
+        )
 
-    # 1. 如果选择了 "(Auto Download)"，直接触发自动下载并返回下载路径
-    if clean_name.endswith(" (Auto Download)"):
-        clean_name = clean_name.replace(" (Auto Download)", "").strip()
-        return _download_official_model(HF_REPO_ID, clean_name or HF_FILENAME_V1_1)
+    clean_name = str(name).strip()
+
+    # 1. 如果包含 "(Auto Download)"，直接根据名称智能判断并触发官方下载
+    if "(Auto Download)" in clean_name:
+        fn = clean_name.replace("(Auto Download)", "").strip()
+        target_fn = HF_FILENAME_V1 if ("v1.safetensors" in fn.lower() and "v1.1" not in fn.lower()) else HF_FILENAME_V1_1
+        return _download_official_model(HF_REPO_ID, target_fn)
 
     # 2. 如果是 "(on disk)" 本地选项，剥离后缀后查找
-    if clean_name.endswith(" (on disk)"):
-        clean_name = clean_name.replace(" (on disk)", "").strip()
+    if "(on disk)" in clean_name:
+        clean_name = clean_name.replace("(on disk)", "").strip()
 
     # 3. 优先通过 ComfyUI 标准系统路径解析
     if folder_paths is not None:
@@ -175,10 +181,12 @@ def _resolve_weight(name: str) -> str:
                 if clean_name in fnames:
                     return os.path.join(root, clean_name)
 
-    # 5. 容错：如果用户选了官方模型名字但本地不存在，自动下载拯救
-    if "kinetix_combat_bridge" in clean_name.lower():
-        target_fn = HF_FILENAME_V1 if ("v1.safetensors" in clean_name.lower() and "v1.1" not in clean_name.lower()) else HF_FILENAME_V1_1
-        return _download_official_model(HF_REPO_ID, target_fn)
+    # 5. 容错与智能救援：只要用户指定了包含 1.1 或 v1 的官方权重名称（哪怕本地尚未下载），自动触发下载
+    lower = clean_name.lower()
+    if "1.1" in lower:
+        return _download_official_model(HF_REPO_ID, HF_FILENAME_V1_1)
+    if "v1" in lower or "1.0" in lower or "kinetix_combat_bridge" in lower:
+        return _download_official_model(HF_REPO_ID, HF_FILENAME_V1)
 
     raise FileNotFoundError(
         f"Cannot find semantic bridge weight file: '{clean_name}'.\n"
