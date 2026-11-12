@@ -177,7 +177,8 @@ def _resolve_weight(name: str) -> str:
 
     # 5. 容错：如果用户选了官方模型名字但本地不存在，自动下载拯救
     if "kinetix_combat_bridge" in clean_name.lower():
-        return _download_official_model(HF_REPO_ID, HF_FILENAME)
+        target_fn = HF_FILENAME_V1 if ("v1.safetensors" in clean_name.lower() and "v1.1" not in clean_name.lower()) else HF_FILENAME_V1_1
+        return _download_official_model(HF_REPO_ID, target_fn)
 
     raise FileNotFoundError(
         f"Cannot find semantic bridge weight file: '{clean_name}'.\n"
