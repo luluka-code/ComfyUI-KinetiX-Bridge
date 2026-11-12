@@ -42,13 +42,15 @@ if folder_paths is not None:
 
 _BRIDGE_CACHE: Dict[Tuple[str, str], Any] = {}
 
-# 官方 Hugging Face 权重元数据（默认全面采用 v1.1）
+# 官方 Hugging Face 权重元数据
 HF_REPO_ID = "kinetixfx/Kinetix_Combat_Bridge"
-HF_FILENAME = "kinetix_combat_bridge_v1.1.safetensors"
-AUTO_DOWNLOAD_LABEL = f"{HF_FILENAME} (Auto Download)"
+HF_FILENAME_V1_1 = "kinetix_combat_bridge_v1.1.safetensors"
+HF_FILENAME_V1 = "kinetix_combat_bridge_v1.safetensors"
+AUTO_DOWNLOAD_LABEL = f"{HF_FILENAME_V1_1} (Auto Download)"
+AUTO_DOWNLOAD_LABEL_V1 = f"{HF_FILENAME_V1} (Auto Download)"
 
 
-def _download_official_model(repo_id: str = HF_REPO_ID, filename: str = HF_FILENAME) -> str:
+def _download_official_model(repo_id: str = HF_REPO_ID, filename: str = HF_FILENAME_V1_1) -> str:
     """自动下载官方权重至 models/kinetix_bridge/ 目录。支持 Hugging Face 官方源与国内高速镜像双通道容错。"""
     os.makedirs(KINETIX_BRIDGE_DIR, exist_ok=True)
     target_path = os.path.join(KINETIX_BRIDGE_DIR, filename)
@@ -104,7 +106,7 @@ def _download_official_model(repo_id: str = HF_REPO_ID, filename: str = HF_FILEN
 
 def _list_weights() -> List[str]:
     """同时提供官方云端自动下载项与本地已下载/手动放置的权重扫描。"""
-    models: List[str] = [AUTO_DOWNLOAD_LABEL]
+    models: List[str] = [AUTO_DOWNLOAD_LABEL, AUTO_DOWNLOAD_LABEL_V1]
 
     # 1. 扫描本地各目录
     on_disk: List[str] = []
@@ -138,10 +140,11 @@ def _resolve_weight(name: str) -> str:
     """按优先级顺序在多个模型目录中定位权重绝对路径，支持自动下载。"""
     clean_name = str(name).strip() if name else ""
 
-    # 1. 如果选择了 "(Auto Download)"，直接触发自动下载并返回下载路径
+    # 1. 如果选择了 "(Auto Download)"，直接提取文件名并触发自动下载
     if clean_name.endswith(" (Auto Download)"):
         clean_name = clean_name.replace(" (Auto Download)", "").strip()
-        return _download_official_model(HF_REPO_ID, clean_name or HF_FILENAME)
+        target_fn = clean_name or HF_FILENAME_V1_1
+        return _download_official_model(HF_REPO_ID, target_fn)
 
     # 2. 如果是 "(on disk)" 本地选项，剥离后缀后查找
     if clean_name.endswith(" (on disk)"):
@@ -170,7 +173,7 @@ def _resolve_weight(name: str) -> str:
 
     # 5. 容错：如果用户选了官方模型名字但本地不存在，自动下载拯救
     if "kinetix_combat_bridge" in clean_name.lower():
-        target_fn = clean_name if clean_name.endswith(".safetensors") else HF_FILENAME
+        target_fn = clean_name if clean_name.endswith(".safetensors") else HF_FILENAME_V1_1
         return _download_official_model(HF_REPO_ID, target_fn)
 
     raise FileNotFoundError(
